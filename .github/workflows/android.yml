@@ -11,6 +11,14 @@ jobs:
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Download and prepare offline question bank
+        run: |
+          python -m pip install --disable-pip-version-check requests
+          python scripts/download_question_bank.py
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
