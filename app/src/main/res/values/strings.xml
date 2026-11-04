@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">电视学习管家</string>
+    <string name="accessibility_desc">在观看时间到达后显示学习答题界面。</string>
+</resources>
