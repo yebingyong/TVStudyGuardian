@@ -2,6 +2,8 @@ package com.example.tvstudyguardian;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.accessibilityservice.AccessibilityServiceInfo;
+import android.view.accessibility.AccessibilityManager;
 import android.content.Intent;
 import android.os.Bundle;
 import android.provider.Settings;
@@ -11,6 +13,7 @@ import android.widget.*;
 public class MainActivity extends Activity {
     private EditText interval, maxMinutes, startTime, endTime, grade, password;
     private Spinner subject;
+    private TextView serviceStatus;
 
     @Override public void onCreate(Bundle b) {
         super.onCreate(b);
@@ -45,6 +48,10 @@ public class MainActivity extends Activity {
         Button accessibility = new Button(this); accessibility.setText("开启无障碍拦截服务");
         root.addView(accessibility);
         accessibility.setOnClickListener(v -> openAccessibilitySettings());
+        serviceStatus = new TextView(this);
+        serviceStatus.setTextSize(18);
+        serviceStatus.setPadding(0, 18, 0, 18);
+        root.addView(serviceStatus);
 
         TextView tip = new TextView(this);
         tip.setText("\n首次使用：保存设置 → 进入系统无障碍设置 → 找到“电视学习管家拦截服务”并手动开启。\n\n如果电视不支持直接打开无障碍设置，本按钮会尝试打开系统设置。答题拦截依赖电视允许无障碍服务运行；部分系统页面或受保护的视频应用可能无法拦截。");
@@ -53,6 +60,30 @@ public class MainActivity extends Activity {
 
         ScrollView scroll = new ScrollView(this); scroll.addView(root); setContentView(scroll);
         loadSettings();
+    }
+
+    @Override protected void onResume() {
+        super.onResume();
+        updateServiceStatus();
+    }
+
+    private void updateServiceStatus() {
+        if (serviceStatus == null) return;
+        boolean enabled = false;
+        try {
+            AccessibilityManager manager = (AccessibilityManager) getSystemService(ACCESSIBILITY_SERVICE);
+            if (manager != null) {
+                for (AccessibilityServiceInfo info : manager.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)) {
+                    if (info.getResolveInfo() != null && info.getResolveInfo().serviceInfo != null
+                        && getPackageName().equals(info.getResolveInfo().serviceInfo.packageName)
+                        && StudyAccessibilityService.class.getName().equals(info.getResolveInfo().serviceInfo.name)) {
+                        enabled = true; break;
+                    }
+                }
+            }
+        } catch (Exception e) { android.util.Log.e("TVStudyGuardian", "Unable to query accessibility status", e); }
+        serviceStatus.setText(enabled ? "服务状态：已授权。返回电视播放应用后开始计时。" : "服务状态：尚未授权。请在系统无障碍设置中手动开启本应用服务。");
+        serviceStatus.setTextColor(enabled ? 0xff16803c : 0xffb45309);
     }
 
     private void openAccessibilitySettings() {
@@ -84,7 +115,7 @@ public class MainActivity extends Activity {
         startTime.setText(p.getString("start", "17:00"));
         endTime.setText(p.getString("end", "20:30"));
         grade.setText(String.valueOf(p.getInt("grade", 1)));
-        password.setText(p.getString("password", ""));
+        password.setText(p.getString("password", "123456"));
         String s = p.getString("subject", "随机");
         String[] opts = {"随机", "数学", "语文", "英语"};
         for (int i=0;i<opts.length;i++) if (opts[i].equals(s)) subject.setSelection(i);
