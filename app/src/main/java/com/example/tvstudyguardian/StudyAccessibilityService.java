@@ -7,6 +7,8 @@ import android.graphics.Typeface;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.PowerManager;
+import android.util.Log;
+import android.widget.Toast;
 import android.view.Gravity;
 import android.view.View;
 import android.view.WindowManager;
@@ -17,6 +19,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 public class StudyAccessibilityService extends AccessibilityService {
+    private static final String TAG = "TVStudyGuardian";
     private final Handler handler=new Handler(Looper.getMainLooper());
     private WindowManager windowManager;
     private String foregroundPackage="";
@@ -36,7 +39,7 @@ public class StudyAccessibilityService extends AccessibilityService {
             intervalAccumulated+=delta; WatchPolicy.addWatched(StudyAccessibilityService.this,delta);
             getSharedPreferences(WatchPolicy.PREF,MODE_PRIVATE).edit().putLong("interval_accumulated",intervalAccumulated).apply();
         }
-        if(!overlayShowing&&!overrideActive){
+        if(screenOn && watchingApp && !overlayShowing && !overrideActive){
             if(!WatchPolicy.withinAllowedTime(StudyAccessibilityService.this)){hardLock=true;showQuestion("现在不是允许观看时间。需要家长验证才能临时解锁。");}
             else if(WatchPolicy.dailyLimitReached(StudyAccessibilityService.this)){hardLock=true;showQuestion("今天的观看时间已经用完。需要家长验证才能临时解锁。");}
             else if(intervalAccumulated>=WatchPolicy.intervalMinutes(StudyAccessibilityService.this)*60000L){hardLock=false;showQuestion("休息学习一下，答对题目即可继续观看！");}
@@ -44,9 +47,12 @@ public class StudyAccessibilityService extends AccessibilityService {
         handler.postDelayed(this,1000);
     }};
     @Override public void onServiceConnected(){
+        super.onServiceConnected();
         windowManager=(WindowManager)getSystemService(WINDOW_SERVICE);
         intervalAccumulated=getSharedPreferences(WatchPolicy.PREF,MODE_PRIVATE).getLong("interval_accumulated",0L);
-        lastTick=System.currentTimeMillis(); handler.post(ticker);
+        lastTick=System.currentTimeMillis(); handler.removeCallbacks(ticker); handler.post(ticker);
+        Log.i(TAG, "Accessibility service connected");
+        Toast.makeText(this, "电视学习管家拦截服务已启动", Toast.LENGTH_LONG).show();
     }
     @Override public void onAccessibilityEvent(AccessibilityEvent event){
         if(event==null)return; int type=event.getEventType();
@@ -60,7 +66,12 @@ public class StudyAccessibilityService extends AccessibilityService {
         String p=pkg.toLowerCase();String[] excluded={"systemui","launcher","home","settings","inputmethod","keyboard","packageinstaller","permissioncontroller","resolver"};
         for(String item:excluded)if(p.contains(item))return false;return true;
     }
-    private void showQuestion(String message){if(overlayShowing)return;overlayShowing=true;wrongCount=0;currentQuestion=makeQuestion();buildQuestionOverlay(message);}
+    private void showQuestion(String message){
+        if(overlayShowing)return;
+        overlayShowing=true;wrongCount=0;currentQuestion=makeQuestion();
+        try { buildQuestionOverlay(message); }
+        catch(Exception e){ overlayShowing=false;overlay=null;Log.e(TAG,"Unable to build question overlay",e);Toast.makeText(this,"题目窗口启动失败，请检查电视无障碍权限",Toast.LENGTH_LONG).show(); }
+    }
     private Question makeQuestion(){
         int grade=getSharedPreferences(WatchPolicy.PREF,MODE_PRIVATE).getInt("grade",1);
         String subject=getSharedPreferences(WatchPolicy.PREF,MODE_PRIVATE).getString("subject","随机");
@@ -87,7 +98,7 @@ public class StudyAccessibilityService extends AccessibilityService {
             }else{wrongCount++;feedback.setText("答案不正确，再试一次。已答错 "+wrongCount+" 次。");answer.setText("");currentQuestion=makeQuestion();renderQuestion(questionView,optionsView,answerHint);answer.setHint("输入答案");answer.requestFocus();}
         });
         TextView parent=new TextView(this);parent.setText("家长模式：输入密码临时解锁 30 分钟");parent.setTextColor(0xffb9c8e2);parent.setTextSize(18);parent.setGravity(Gravity.CENTER);parent.setPadding(0,24,0,0);root.addView(parent);
-        parent.setOnClickListener(v->showParentUnlock());overlay=root;addAccessibilityOverlay();answer.requestFocus();
+        parent.setOnClickListener(v->showParentUnlock());overlay=root;if(addAccessibilityOverlay())answer.requestFocus();else{overlay=null;overlayShowing=false;}
     }
     private void renderQuestion(TextView q,TextView o,TextView h){q.setText(currentQuestion.subject+" · "+currentQuestion.prompt);o.setText(currentQuestion.choicesText());h.setText(currentQuestion.answerHint());}
     private void showParentUnlock(){
@@ -106,13 +117,15 @@ public class StudyAccessibilityService extends AccessibilityService {
         });
         Button cancel=new Button(this);cancel.setText("返回答题");root.addView(cancel);
         cancel.setOnClickListener(v->{try{windowManager.removeView(root);}catch(Exception ignored){}overlay=null;currentQuestion=makeQuestion();buildQuestionOverlay("请答对题目，或由家长验证。");});
-        overlay=root;addAccessibilityOverlay();pwd.requestFocus();
+        overlay=root;if(addAccessibilityOverlay())pwd.requestFocus();else{overlay=null;overlayShowing=false;}
     }
-    private void addAccessibilityOverlay(){
-        if(overlay==null||windowManager==null)return;
+    private boolean addAccessibilityOverlay(){
+        if(overlay==null||windowManager==null){Log.e(TAG,"Overlay unavailable: view or WindowManager is null");return false;}
         WindowManager.LayoutParams lp=new WindowManager.LayoutParams(WindowManager.LayoutParams.MATCH_PARENT,WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN|WindowManager.LayoutParams.FLAG_FULLSCREEN|WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,PixelFormat.TRANSLUCENT);
-        lp.gravity=Gravity.CENTER;try{windowManager.addView(overlay,lp);overlay.requestFocus();}catch(Exception ignored){}
+        lp.gravity=Gravity.CENTER;
+        try{windowManager.addView(overlay,lp);overlay.requestFocus();Log.i(TAG,"Question overlay displayed");return true;}
+        catch(Exception e){Log.e(TAG,"Unable to display accessibility overlay",e);Toast.makeText(this,"电视系统拒绝显示答题窗口，请确认无障碍服务已开启",Toast.LENGTH_LONG).show();return false;}
     }
     private void removeOverlay(){
         if(overlay!=null&&windowManager!=null){try{windowManager.removeView(overlay);}catch(Exception ignored){}}
