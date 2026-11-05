@@ -1,6 +1,7 @@
 package com.example.tvstudyguardian;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Intent;
 import android.os.Bundle;
 import android.provider.Settings;
@@ -43,15 +44,32 @@ public class MainActivity extends Activity {
 
         Button accessibility = new Button(this); accessibility.setText("开启无障碍拦截服务");
         root.addView(accessibility);
-        accessibility.setOnClickListener(v -> startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)));
+        accessibility.setOnClickListener(v -> openAccessibilitySettings());
 
         TextView tip = new TextView(this);
-        tip.setText("\n首次使用：保存设置 → 开启无障碍服务。\n\n说明：答题拦截依赖电视允许无障碍服务运行。部分系统页面、主页或受保护的视频应用可能无法拦截。请先在电视上测试。");
+        tip.setText("\n首次使用：保存设置 → 进入系统无障碍设置 → 找到“电视学习管家拦截服务”并手动开启。\n\n如果电视不支持直接打开无障碍设置，本按钮会尝试打开系统设置。答题拦截依赖电视允许无障碍服务运行；部分系统页面或受保护的视频应用可能无法拦截。");
         tip.setTextSize(16); tip.setTextColor(0xff35445e);
         root.addView(tip);
 
         ScrollView scroll = new ScrollView(this); scroll.addView(root); setContentView(scroll);
         loadSettings();
+    }
+
+    private void openAccessibilitySettings() {
+        try {
+            startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
+        } catch (Exception firstError) {
+            try {
+                startActivity(new Intent(Settings.ACTION_SETTINGS));
+                Toast.makeText(this, "请在系统设置中查找：无障碍 / 辅助功能", Toast.LENGTH_LONG).show();
+            } catch (Exception secondError) {
+                new AlertDialog.Builder(this)
+                    .setTitle("无法打开系统设置")
+                    .setMessage("当前电视系统没有响应无障碍设置入口。请从电视桌面的“设置”中手动查找“无障碍”或“辅助功能”，再开启“电视学习管家拦截服务”。")
+                    .setPositiveButton("知道了", null)
+                    .show();
+            }
+        }
     }
 
     private EditText field(LinearLayout root, String label, String def) {
